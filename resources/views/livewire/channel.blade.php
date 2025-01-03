@@ -25,52 +25,55 @@ $send = fn (string $message) => $this->channel->send(auth()->user(), $message);
         class="messages mb-4 flex h-full grow flex-col overflow-y-scroll"
         x-ref="messages"
     >
-        <span
-            class="mt-auto w-full py-4 text-center text-lg"
-            :class="{ 'mb-4 border-b': $wire.messages.length > 0 }"
-        >
-            This is the very beginning of the
-            <strong>{{ $channel->name }}</strong>
-            channel.
-        </span>
+        @if ($subscribed)
+            <span
+                class="mt-auto w-full py-4 text-center text-lg"
+                :class="{ 'mb-4 border-b': $wire.messages.length > 0 }"
+            >
+                This is the very beginning of the
+                <strong>{{ $channel->name }}</strong>
+                channel.
+            </span>
 
-        <template x-for="message in $wire.messages">
-            <div class="flex gap-x-2">
-                <img
-                    :src="message.user.avatar"
-                    :alt="message.user.name"
-                    class="h-10 w-10 rounded-md"
-                />
+            <template x-for="message in $wire.messages">
+                <div class="flex gap-x-2">
+                    <img
+                        :src="message.user.avatar"
+                        :alt="message.user.name"
+                        class="h-10 w-10 rounded-md"
+                    />
 
-                <div>
-                    <div class="flex items-center gap-x-2">
-                        <span
-                            class="text-lg font-bold"
-                            x-text="message.user.name"
-                        ></span>
+                    <div>
+                        <div class="flex items-center gap-x-2">
+                            <span
+                                class="text-lg font-bold"
+                                x-text="message.user.name"
+                            ></span>
 
-                        <time
-                            class="text-sm text-gray-600"
-                            x-text="message.sent_at"
-                        ></time>
+                            <time
+                                class="text-sm text-gray-600"
+                                x-text="message.sent_at"
+                            ></time>
+                        </div>
+
+                        <div x-html="message.content" class="text-lg"></div>
                     </div>
-
-                    <div x-html="message.content" class="text-lg"></div>
                 </div>
-            </div>
-        </template>
+            </template>
+        @endif
     </div>
 
     <div
         class="flex w-full"
         @submitted.stop="send($event.detail.message)"
+        @typing="typing"
     >
         @if ($subscribed)
             <div class="flex w-full flex-col gap-y-1">
                 <x-editor channel="{{ $channel->name }}" />
 
                 <!-- Typing Indicator -->
-                <span class="block shrink-0 text-xs text-gray-500 after:content-['\200b']"></span>
+                <span class="block shrink-0 text-xs text-gray-500 after:content-['\200b']" x-text="typingUsers"></span>
             </div>
         @else
             <div class="flex flex flex-grow flex-col items-center justify-center gap-y-4 rounded-md border bg-gray-100 p-6">
@@ -103,9 +106,16 @@ Alpine.data('channel', () => {
         init() {
             this.scrollPosition()
             this.channel = Echo.private('channels.{{ $channel->id }}')
-            // this.channel = Echo.channel('channels.{{ $channel->id }}')
             this.channel.listen('MessageSent', (event) => {
                 this.$wire.messages.push(event.message)
+            })
+            this.channel.listenForWhisper('StartTyping', (event) => {
+                this.usersTyping.push(event)
+            })
+            this.channel.listenForWhisper('StopTyping', (event) => {
+                this.usersTyping = this.usersTyping.filter(
+                    (user) => user.id !== event.id
+                )
             })
         },
 
@@ -113,11 +123,61 @@ Alpine.data('channel', () => {
             this.$wire.send(message)
         },
 
+        typing() {
+            this.debounce(
+                () => {
+                    this.channel.whisper('StartTyping', {
+                        id: '{{ auth()->id() }}',
+                        name: '{{ auth()->user()->name }}'
+                    })
+                },
+                () => {
+                    this.channel.whisper('StopTyping', {
+                        id: '{{ auth()->id() }}',
+                        name: '{{ auth()->user()->name }}'
+                    })
+                }
+            )
+        },
+
+        typingUsers() {
+            switch(this.usersTyping.length) {
+                case 0:
+                    return ''
+                case 1:
+                    return `${this.usersTyping[0].name} is typing...`
+                case 2:
+                    return `${this.usersTyping[0].name} and ${this.usersTyping[1].name} are typing...`
+                default:
+                    return 'Several people are typing...'
+            }
+        },
+
         scrollPosition() {
             this.$watch('$wire.messages', () => {
                 this.$refs.messages.scrollTop =
                     this.$refs.messages.scrollHeight;
             });
+        },
+
+        debouncer: null,
+
+        debounce(startCallback, stopCallback) {
+            if(this.debouncer) {
+                clearTimeout(this.debouncer)
+            }
+
+            this.debouncer = setTimeout(() => {
+                this.isTyping = false
+
+                stopCallback();
+            }, 2000);
+
+            if (! this.isTyping) {
+                this.isTyping = true;
+
+                startCallback();
+            }
         },
     }
 })
