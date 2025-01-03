@@ -85,6 +85,7 @@ class Channel extends Model
         ]);
 
         // MessageSent::dispatch($message);
+        // alternatively, you can use the broadcasting facade to send the message event to the channel
         // use the broadcasting facade to send the message event (anonymous class) to the channel because the event class MessageSent is not doing any other thing
         Broadcast::private('channels.'.$this->id)
             ->as('App\\Events\\MessageSent')
